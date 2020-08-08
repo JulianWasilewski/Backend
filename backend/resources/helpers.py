@@ -10,6 +10,7 @@ from backend.blockstack_auth import BlockstackAuth
 from backend.database.db import DB_SESSION
 from backend.database.model import User
 
+HTTP_CODE_ERROR_UNAUTHORIZED = 401
 
 def check_params_int(params: List) -> List[int]:
     """
@@ -75,7 +76,7 @@ def auth_user(func):
     @db_session_dec
     def decorated_function(session, *args, **kws):
         if 'authToken' not in request.headers:
-            abort(401)
+            abort(HTTP_CODE_ERROR_UNAUTHORIZED)
 
         try:
             shortened_token = BlockstackAuth.short_jwt(request.headers['authToken'])  # implicitly checks if its a token
@@ -92,7 +93,7 @@ def auth_user(func):
                     session.commit()
                 else:
                     # token invalid, abort
-                    abort(401)
+                    abort(HTTP_CODE_ERROR_UNAUTHORIZED)
 
             else:  # token is valid
                 pass
@@ -100,7 +101,7 @@ def auth_user(func):
             # User needs to register
             abort(404)
         except (KeyError, ValueError, DecodeError):  # jwt decode errors
-            abort(401)
+            abort(HTTP_CODE_ERROR_UNAUTHORIZED)
         else:
             tmp = func(user_inst, *args, **kws)
             session.commit()  # if user_inst get's changed
