@@ -17,6 +17,11 @@ from backend.smart_contracts.web3_project import project_constructor, project_ad
 
 BP = Blueprint('projects', __name__, url_prefix='/api/projects')
 
+HTTP_CODE_OK = 200
+HTTP_CODE_CREATED = 201
+HTTP_CODE_ERROR_BAD_REQUEST = 400
+HTTP_CODE_ERROR_FORBIDDEN = 403
+HTTP_CODE_ERROR_NOT_FOUND = 404
 
 @BP.route('', methods=['GET'])
 @db_session_dec
@@ -37,10 +42,10 @@ def projects_get(session):
     try:
         check_params_int([id_project, id_institution])
     except ValueError:
-        return jsonify({"error": "bad argument"}), 400
+        return jsonify({"error": "bad argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if None in [radius, latitude, longitude] and any([radius, latitude, longitude]):
-        return jsonify({"error": "bad geo argument"}), 400
+        return jsonify({"error": "bad geo argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     results = session.query(Project).join(Project.institution).join(Institution.user)
 
@@ -92,7 +97,7 @@ def projects_id(session, id):  # noqa
         if id_project:
             int(id_project)
     except ValueError:
-        return jsonify({"error": "bad argument"}), 400
+        return jsonify({"error": "bad argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     results = session.query(Project)
 
@@ -100,7 +105,7 @@ def projects_id(session, id):  # noqa
         if id_project:
             results = results.filter(Project.idProject == id_project).one()
     except NoResultFound:
-        return jsonify(), 404
+        return jsonify(), HTTP_CODE_ERROR_NOT_FOUND
 
     milestoneresults = session.query(Milestone).filter(Milestone.project_id == id_project)
 
@@ -136,7 +141,7 @@ def projects_id(session, id):  # noqa
         'goal': results.goal,
         'totalDonated': total,
     }
-    return jsonify(json_data), 200
+    return jsonify(json_data), HTTP_CODE_OK
 
 
 @BP.route('', methods=['POST'])
@@ -160,25 +165,25 @@ def projects_post(session, user_inst: User):  # pylint:disable=unused-argument, 
     short = request.headers.get('short')
 
     if None in [name, goal_raw, until_raw, id_institution, description, short]:
-        return jsonify({'error': 'Missing parameter'}), 403
+        return jsonify({'error': 'Missing parameter'}), HTTP_CODE_ERROR_FORBIDDEN
     try:
         id_institution, goal, until = check_params_int([id_institution, goal_raw, until_raw])  # noqa
     except ValueError:
-        return jsonify({"error": "bad argument"}), 400
+        return jsonify({"error": "bad argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     try:
         description = b64decode(description).decode("latin-1")  # noqa
     except TypeError:
-        return jsonify({"error": "bad base64 encoding"}), 400
+        return jsonify({"error": "bad base64 encoding"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if id_institution and session.query(Institution).get(id_institution) is None:
-        return jsonify({'error': 'Institution not found'}), 400
+        return jsonify({'error': 'Institution not found'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if webpage and not validators.url(webpage):
-        return jsonify({'error': 'webpage is not a valid url'}), 400
+        return jsonify({'error': 'webpage is not a valid url'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if until < int(time.time()):
-        return jsonify({'error': 'until value is in the past'}), 400
+        return jsonify({'error': 'until value is in the past'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if until > 2**64:
         return "until value is not a valid date... or is it after the 04.12.219250468 15:30:07 already?!"
@@ -186,7 +191,7 @@ def projects_post(session, user_inst: User):  # pylint:disable=unused-argument, 
     result = session.query(Institution)\
         .filter(Institution.idInstitution == id_institution).filter(Institution.user == user_inst).one_or_none()
     if result is None:
-        return jsonify({'error': 'User has no permission to create projects for this institution'}), 403
+        return jsonify({'error': 'User has no permission to create projects for this institution'}), HTTP_CODE_ERROR_FORBIDDEN
 
     project_inst = Project(
         nameProject=name,
@@ -206,11 +211,11 @@ def projects_post(session, user_inst: User):  # pylint:disable=unused-argument, 
             mile_check = project_add_milestone_check(project_inst, user_inst, milestone['name'],
                                                      int(milestone['goal']), int(milestone['until']))
             if mile_check:
-                return jsonify({'error': 'milestone error: ' + mile_check}), 400
+                return jsonify({'error': 'milestone error: ' + mile_check}), HTTP_CODE_ERROR_BAD_REQUEST
 
         ctor_check = project_constructor_check(user_inst, str(str(description)[0:32]), goal)
         if ctor_check:
-            return jsonify({'error': 'sc error: ' + ctor_check}), 400
+            return jsonify({'error': 'sc error: ' + ctor_check}), HTTP_CODE_ERROR_BAD_REQUEST
 
         project_inst.scAddress = project_constructor(user_inst, str(str(description)[0:32]), goal)
         session.add(project_inst)
@@ -228,9 +233,9 @@ def projects_post(session, user_inst: User):  # pylint:disable=unused-argument, 
             session.add(project_inst)
             session.add(milestones_inst)
         session.commit()
-        return jsonify({'status': 'ok', 'id': project_inst.idProject}), 201
+        return jsonify({'status': 'ok', 'id': project_inst.idProject}), HTTP_CODE_CREATED
     except (ValueError, KeyError, json.JSONDecodeError):
-        return jsonify({'error': 'invalid json'}), 400
+        return jsonify({'error': 'invalid json'}), HTTP_CODE_ERROR_BAD_REQUEST
     finally:
         session.rollback()
 
@@ -255,9 +260,9 @@ def projects_patch(session, user_inst, id):
     project_inst: Project = session.query(Project).get(id)
 
     if project_inst is None:
-        return jsonify({'error': 'Project doesnt exist'}), 404
+        return jsonify({'error': 'Project doesnt exist'}), HTTP_CODE_ERROR_NOT_FOUND
     if webpage is not None and not validators.url(webpage):
-        return jsonify({'error': 'webpage is not a valid url'}), 400
+        return jsonify({'error': 'webpage is not a valid url'}), HTTP_CODE_ERROR_BAD_REQUEST
     if latitude and longitude is not None:
         try:
             float(latitude)
@@ -265,7 +270,7 @@ def projects_patch(session, user_inst, id):
             project_inst.latitude = latitude
             project_inst.longitude = longitude
         except ValueError:
-            return jsonify({'error': 'not a valid geolocation'}), 400
+            return jsonify({'error': 'not a valid geolocation'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if webpage is not None:
         project_inst.webpageProject = webpage
@@ -273,7 +278,7 @@ def projects_patch(session, user_inst, id):
         try:
             description = b64decode(description).decode("latin-1")
         except TypeError:
-            return jsonify({"error": "bad base64 encoding"}), 400
+            return jsonify({"error": "bad base64 encoding"}), HTTP_CODE_ERROR_BAD_REQUEST
         project_inst.descriptionProject = description
 
     if short is not None:
@@ -283,7 +288,7 @@ def projects_patch(session, user_inst, id):
         .filter(Institution.idInstitution == project_inst.institution_id)\
         .filter(Institution.user == user_inst).one_or_none()
     if result is None:
-        return jsonify({'error': 'User has no permission to create projects for this institution'}), 403
+        return jsonify({'error': 'User has no permission to create projects for this institution'}), HTTP_CODE_ERROR_FORBIDDEN
 
     try:
         milestones_json = json.loads(milestones)
@@ -291,7 +296,7 @@ def projects_patch(session, user_inst, id):
             mile_check = project_add_milestone_check(project_inst, user_inst, milestone['name'],
                                                      int(milestone['goal']), int(milestone['until']))
             if mile_check:
-                return jsonify({'error': 'milestone error: ' + mile_check}), 400
+                return jsonify({'error': 'milestone error: ' + mile_check}), HTTP_CODE_ERROR_BAD_REQUEST
 
         for milestone in milestones_json:
             sc_id = project_add_milestone(project_inst, user_inst,
@@ -309,9 +314,9 @@ def projects_patch(session, user_inst, id):
             session.add(milestones_inst)
         session.add(project_inst)
         session.commit()
-        return jsonify({'status': 'ok'}), 201
+        return jsonify({'status': 'ok'}), HTTP_CODE_CREATED
     except (KeyError, json.JSONDecodeError):
-        return jsonify({'status': 'invalid json'}), 400
+        return jsonify({'status': 'invalid json'}), HTTP_CODE_ERROR_BAD_REQUEST
     finally:
         session.rollback()
         session.close()
