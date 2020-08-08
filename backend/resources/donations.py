@@ -11,6 +11,12 @@ from backend.smart_contracts.web3_project import project_donate, project_donate_
 
 BP = Blueprint('donations', __name__, url_prefix='/api/donations')
 
+HTTP_CODE_OK = 200
+HTTP_CODE_CREATED = 201
+HTTP_CODE_ERROR_BAD_REQUEST = 400
+HTTP_CODE_ERROR_UNAUTHORIZED = 401
+HTTP_CODE_ERROR_NOT_FOUND = 404
+HTTP_CODE_ERROR_NOT_ACCEPTABLE = 406
 
 @BP.route('', methods=['GET'])
 @db_session_dec
@@ -31,7 +37,7 @@ def donations_get(session):
         check_params_int([id_donation, minamount_donation, maxamount_donation, iduser_user, idmilestone_milestone,
                           idproject_project])
     except ValueError:
-        return jsonify({"error": "bad argument"}), 400
+        return jsonify({"error": "bad argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     results = session.query(Donation, Project)
     results = results.join(Milestone, Donation.milestone).join(Project)
@@ -79,29 +85,29 @@ def donations_post(session, user_inst):
     vote_enabled = request.headers.get('voteEnabled', default=None)
 
     if None in [idproject, amount, vote_enabled]:
-        return jsonify({'error': 'Missing parameter'}), 400
+        return jsonify({'error': 'Missing parameter'}), HTTP_CODE_ERROR_BAD_REQUEST
     try:
         check_params_int([idproject, amount, vote_enabled])
     except ValueError:
-        return jsonify({"error": "bad argument"}), 400
+        return jsonify({"error": "bad argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     results: Project = session.query(Project).get(idproject)
 
     if results is None:
-        return jsonify({'error': 'Project not found'}), 400
+        return jsonify({'error': 'Project not found'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if int(amount) <= 0:
-        return jsonify({'error': 'amount cant be 0 or less'}), 400
+        return jsonify({'error': 'amount cant be 0 or less'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     balance = WEB3.eth.getBalance(user_inst.publickeyUser)
     if balance < int(amount):  # ToDo: gas-cost?
-        return jsonify({'error': 'not enough balance'}), 406
+        return jsonify({'error': 'not enough balance'}), HTTP_CODE_ERROR_NOT_ACCEPTABLE
 
     try:
         # Add Donation
         donate_check = project_donate_check(results, user_inst, int(amount), bool(int(vote_enabled)))
         if donate_check:
-            return jsonify({'error': 'sc error: ' + donate_check}), 400
+            return jsonify({'error': 'sc error: ' + donate_check}), HTTP_CODE_ERROR_BAD_REQUEST
 
         milestone_sc_index = project_donate(results, user_inst, int(amount), bool(int(vote_enabled)))
 
@@ -119,7 +125,7 @@ def donations_post(session, user_inst):
         session.add(donations_inst)
         session.commit()
 
-        return jsonify({'status': 'Spende wurde verbucht'}), 201
+        return jsonify({'status': 'Spende wurde verbucht'}), HTTP_CODE_CREATED
     finally:
         session.rollback()
         session.close()
@@ -138,30 +144,30 @@ def milestones_vote(session, user_inst: User):
     vote = request.headers.get('vote')  # 1 = positive, 0 = negative
 
     if None in [donation_id, vote]:
-        return jsonify({'error': 'Missing parameter'}), 400
+        return jsonify({'error': 'Missing parameter'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     try:
         donation_id, vote = check_params_int([donation_id, vote])  # noqa
     except ValueError:
-        return jsonify({"error": "bad argument"}), 400
+        return jsonify({"error": "bad argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     donation: Donation = session.query(Donation).filter(Donation.idDonation == donation_id).one_or_none()
 
     if donation is None:
-        return jsonify({"error": "donation not found"}), 404
+        return jsonify({"error": "donation not found"}), HTTP_CODE_ERROR_NOT_FOUND
 
     if not donation.voteDonation:
-        return jsonify({"error": "didn't register to vote"}), 400
+        return jsonify({"error": "didn't register to vote"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if donation.user_id != user_inst.idUser:
-        return jsonify({"error": "unauthorized user"}), 401
+        return jsonify({"error": "unauthorized user"}), HTTP_CODE_ERROR_UNAUTHORIZED
 
     if donation.voted is not None:
-        return jsonify({"error": "already voted"}), 400
+        return jsonify({"error": "already voted"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     vote_check = project_donate_vote_check(session, user_inst, 0 if vote else 1, donation)
     if vote_check:
-        return jsonify({'error': 'sc error: ' + vote_check}), 400
+        return jsonify({'error': 'sc error: ' + vote_check}), HTTP_CODE_ERROR_BAD_REQUEST
 
     donation.milestone.currentVotesMilestone += 1 if vote else (-1)
 
@@ -180,4 +186,4 @@ def milestones_vote(session, user_inst: User):
         session.add(don)
 
     session.commit()
-    return jsonify({'status': 'ok'}), 200
+    return jsonify({'status': 'ok'}), HTTP_CODE_OK
