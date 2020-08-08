@@ -9,6 +9,10 @@ from backend.resources.helpers import auth_user, db_session_dec
 
 BP = Blueprint('file', __name__, url_prefix='/api/file')
 
+HTTP_CODE_CREATED = 201
+HTTP_CODE_ERROR_BAD_REQUEST = 400
+HTTP_CODE_ERROR_FORBIDDEN = 403
+HTTP_CODE_ERROR_NOT_FOUND = 404
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -28,30 +32,30 @@ def file_upload(session, user_inst):  # pylint:disable=unused-argument, too-many
     id_proj = request.headers.get('idProject')
 
     if id_inst is None and id_proj is None:
-        return jsonify({'error': 'No project/institution given'}), 400
+        return jsonify({'error': 'No project/institution given'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if id_inst is not None:
         inst: Institution = session.query(Institution).filter(Institution.idInstitution == id_inst). \
             filter(Institution.user == user_inst).one_or_none()
         if inst is None:
-            return jsonify({'error': 'No Institution found'}), 404
+            return jsonify({'error': 'No Institution found'}), HTTP_CODE_ERROR_NOT_FOUND
 
     if id_proj is not None:
         proj: Project = session.query(Project).join(Project.institution).filter(Project.idProject == id_proj). \
             filter(Institution.user == user_inst).one_or_none()
         if proj is None:
-            return jsonify({'error': 'No Project found'}), 404
+            return jsonify({'error': 'No Project found'}), HTTP_CODE_ERROR_NOT_FOUND
 
     if 'file' not in request.files:
-        return jsonify({'error': 'No file given'}), 400
+        return jsonify({'error': 'No file given'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     file = request.files['file']
 
     if file.filename == '':
-        return jsonify({'error': 'No file given'}), 400
+        return jsonify({'error': 'No file given'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if not (file and allowed_file(file.filename)):
-        return jsonify({'error': 'File extension not allowed'}), 403
+        return jsonify({'error': 'File extension not allowed'}), HTTP_CODE_ERROR_FORBIDDEN
 
     # Generate a new filename until on that isnt already taken is given
     while True:
@@ -72,11 +76,11 @@ def file_upload(session, user_inst):  # pylint:disable=unused-argument, too-many
             session.add(proj)
 
     except NoResultFound:
-        return jsonify(), 404
+        return jsonify(), HTTP_CODE_ERROR_NOT_FOUND
 
     session.commit()
 
-    return jsonify({'status': 'ok'}), 201
+    return jsonify({'status': 'ok'}), HTTP_CODE_CREATED
 
 
 @BP.route('/<filename>', methods=['GET'])
