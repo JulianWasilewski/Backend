@@ -12,7 +12,15 @@ from backend.smart_contracts.web3_voucher import add_voucher, redeem_voucher, re
 from backend.database.constants import DEC_LEN
 
 BP = Blueprint('voucher', __name__, url_prefix='/api/vouchers')
+#seconds in a year (365.25days)
+YEARS = 31557600
 
+HTTP_CODE_OK = 200
+HTTP_CODE_CREATED = 201
+HTTP_CODE_ERROR_BAD_REQUEST = 400
+HTTP_CODE_ERROR_FORBIDDEN = 403
+HTTP_CODE_ERROR_NOT_FOUND = 404
+HTTP_CODE_ERROR_NOT_ACCEPTABLE = 406
 
 @BP.route('/institution', methods=['PATCH'])
 @auth_user
@@ -30,33 +38,34 @@ def voucher_patch_institution(session, user_inst):
     voucher_valid_time = request.headers.get('validTimeVoucher', default=None)
 
     if None in [inst_id, voucher_id]:
-        return jsonify({'error': 'Missing parameter'}), 400
+        return jsonify({'error': 'Missing parameter'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if voucher_price is not None and len(voucher_price) > DEC_LEN:
-        return jsonify({'error': 'Price to big'}), 400
+        return jsonify({'error': 'Price to big'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     try:
         check_params_int([voucher_id, inst_id, voucher_valid_time, voucher_available, voucher_price])
     except ValueError:
-        return jsonify({"error": "bad argument"}), 400
+        return jsonify({"error": "bad argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if voucher_available not in ['0', '1']:
-        return jsonify({"error": "bad availability argument"}), 400
+        return jsonify({"error": "bad availability argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     voucher = session.query(Voucher).filter(Voucher.idVoucher == voucher_id).one_or_none()
 
     if voucher is None:
-        return jsonify({'error': 'voucher does not exist'}), 400
+        return jsonify({'error': 'voucher does not exist'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if int(voucher.institution_id) != int(inst_id):
-        return jsonify({"error": "voucher does not belong to institution"}), 400
+        return jsonify({"error": "voucher does not belong to institution"}), HTTP_CODE_ERROR_BAD_REQUEST
 
-    if int(voucher_valid_time) > 788923150:
-        return jsonify({'error': "valid time can not be bigger than 25 Years"}), 400
+    if int(voucher_valid_time) > 25 * YEARS:
+        return jsonify({'error': "valid time can not be bigger than 25 years"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if voucher_valid_time:
         if int(voucher_valid_time) < int(voucher.validTime):
-            return jsonify({'error': 'new validTime has to be bigger than the old one'}), 400
+            return jsonify({'error': 'new validTime has to be bigger than the old one'}), HTTP_CODE_ERROR_BAD_REQUEST
+  
         voucher.validTime = voucher_valid_time
     if voucher_price:
         voucher.priceVoucher = int(voucher_price)
@@ -69,10 +78,10 @@ def voucher_patch_institution(session, user_inst):
                          Institution.idInstitution == inst_id).first()
 
     if owner is None:
-        return jsonify({'error': 'no permission'}), 403
+        return jsonify({'error': 'no permission'}), HTTP_CODE_ERROR_FORBIDDEN
 
     session.commit()
-    return jsonify({'status': 'Voucher wurde bearbeitet'}), 201
+    return jsonify({'status': 'Voucher wurde bearbeitet'}), HTTP_CODE_CREATED
 
 
 @BP.route('/institution', methods=['POST'])
@@ -87,31 +96,30 @@ def voucher_post_institution(session, user_inst):
     voucher_price = request.headers.get('price')
     voucher_description = request.headers.get('subject')
     voucher_title = request.headers.get('title')
-    voucher_valid_time = request.headers.get('validTime', default=2 * 31536000)
+    voucher_valid_time = request.headers.get('validTime', default=2 * YEARS)
 
     if None in [voucher_title, voucher_description, voucher_price, institution_id]:
-        return jsonify({'error': 'Missing parameter'}), 400
+        return jsonify({'error': 'Missing parameter'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if "" in [voucher_title, voucher_description]:
-        return jsonify({'error': "Empty parameter"}), 400
+        return jsonify({'error': "Empty parameter"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     if len(voucher_price) > DEC_LEN:
-        return jsonify({'error': "Price to big"}), 400
-
+        return jsonify({'error': "Price to big"}), HTTP_CODE_ERROR_BAD_REQUEST
     if len(voucher_title) > DEC_LEN:
-        return jsonify({'error': "title too long"}), 400
+        return jsonify({'error': "title too long"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     try:
         check_params_int([voucher_price, voucher_valid_time, institution_id])
     except ValueError:
-        return jsonify({"error": "bad argument"}), 400
+        return jsonify({"error": "bad argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
-    if int(voucher_valid_time) > 788923150:
-        return jsonify({'error': "valid time can not be bigger than 25 Years"}), 400
+    if int(voucher_valid_time) > 25 * YEARS:
+        return jsonify({'error': "valid time can not be bigger than 25 years"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     res = session.query(Institution).filter(Institution.idInstitution == institution_id).one_or_none()
     if res is None:
-        return jsonify({'status': 'Institution does not exist'}), 400
+        return jsonify({'status': 'Institution does not exist'}), HTTP_CODE_ERROR_BAD_REQUEST
 
     # check if user is owner
     owner = session.query(Institution)
@@ -119,7 +127,7 @@ def voucher_post_institution(session, user_inst):
                          Institution.idInstitution == institution_id).first()
 
     if owner is None:
-        return jsonify({'error': 'no permission'}), 403
+        return jsonify({'error': 'no permission'}), HTTP_CODE_ERROR_FORBIDDEN
 
     voucher_inst = Voucher(titleVoucher=voucher_title,
                            descriptionVoucher=voucher_description,
@@ -130,7 +138,7 @@ def voucher_post_institution(session, user_inst):
 
     session.add(voucher_inst)
     session.commit()
-    return jsonify({'status': 'Voucher registered'}), 200
+    return jsonify({'status': 'Voucher registered'}), HTTP_CODE_OK
 
 
 @BP.route('/institution', methods=['GET'])
@@ -147,7 +155,7 @@ def voucher_get(session):
     try:
         check_params_int([id_voucher, id_institution, available])
     except ValueError:
-        return jsonify({"error": "bad argument"}), 400
+        return jsonify({"error": "bad argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     results = session.query(Voucher)
 
@@ -173,7 +181,7 @@ def voucher_get(session):
             "picturePath": voucher.institution.picPathInstitution,
         })
 
-    return jsonify(json_data), 200
+    return jsonify(json_data), HTTP_CODE_OK
 
 
 @BP.route('/user', methods=['POST'])
@@ -186,23 +194,23 @@ def voucher_post(session, user):
     """
     id_voucher = request.headers.get('idVoucher')
     if not id_voucher:
-        return jsonify({'error': 'missing id'}), 400
+        return jsonify({'error': 'missing id'}), HTTP_CODE_ERROR_BAD_REQUEST
     try:
         check_params_int([id_voucher])
     except ValueError:
-        return jsonify({"error": "bad argument"}), 400
+        return jsonify({"error": "bad argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     try:
         voucher = session.query(Voucher).filter(Voucher.idVoucher == id_voucher).one()
         balance = WEB3.eth.getBalance(user.publickeyUser)
 
         if balance < int(voucher.priceVoucher):  # ToDo: gas-cost?
-            return jsonify({'error': 'not enough balance'}), 406
+            return jsonify({'error': 'not enough balance'}), HTTP_CODE_ERROR_NOT_ACCEPTABLE
         if not voucher.available:
-            return jsonify({'error': 'voucher not available'}), 406
+            return jsonify({'error': 'voucher not available'}), HTTP_CODE_ERROR_NOT_ACCEPTABLE
 
         association = VoucherUser(usedVoucher=False,
-                                  expires_unixtime=(datetime.now() + timedelta(0, 2 * 31536000)),
+                                  expires_unixtime=(datetime.now() + timedelta(0, 2 * YEARS)),
                                   voucher=voucher,
                                   user=user)
 
@@ -225,11 +233,11 @@ def voucher_post(session, user):
         session.add(association)
         session.commit()
     except InvalidAddress:
-        return jsonify({'error': 'given publickey is not valid'}), 400
+        return jsonify({'error': 'given publickey is not valid'}), HTTP_CODE_ERROR_BAD_REQUEST 
     except NoResultFound:
-        return jsonify({'error': 'Voucher doesnt exist'}), 404
+        return jsonify({'error': 'Voucher doesnt exist'}), HTTP_CODE_ERROR_NOT_FOUND
 
-    return jsonify({'status': 'voucher bought'}), 200
+    return jsonify({'status': 'voucher bought'}), HTTP_CODE_OK
 
 
 @BP.route('/user', methods=['DELETE'])
@@ -243,11 +251,11 @@ def voucher_delete_user(session, user_inst):
     id_voucheruser = request.headers.get('id')
 
     if not id_voucheruser:
-        return jsonify({'error': 'missing id'}), 400
+        return jsonify({'error': 'missing id'}), HTTP_CODE_ERROR_BAD_REQUEST
     try:
         check_params_int([id_voucheruser])
     except ValueError:
-        return jsonify({"error": "bad argument"}), 400
+        return jsonify({"error": "bad argument"}), HTTP_CODE_ERROR_BAD_REQUEST 
 
     voucher_user = session.query(VoucherUser)
     try:
@@ -258,16 +266,16 @@ def voucher_delete_user(session, user_inst):
 
         err = redeem_voucher_check(user_inst, voucher_user, institution.scAddress)
         if err:
-            return jsonify({'error': 'milestone error: ' + err}), 400
+            return jsonify({'error': 'milestone error: ' + err}), HTTP_CODE_ERROR_BAD_REQUEST
 
         redeem_voucher(user_inst, voucher_user, institution.scAddress)
     except NoResultFound:
-        return jsonify({'error': 'No voucher found'}), 404
+        return jsonify({'error': 'No voucher found'}), HTTP_CODE_ERROR_NOT_FOUND
 
     voucher_user.usedVoucher = True
     session.commit()
 
-    return jsonify({'status': 'Gutschein wurde eingelöst'}), 201
+    return jsonify({'status': 'Gutschein wurde eingelöst'}), HTTP_CODE_CREATED
 
 
 @BP.route('/user', methods=['GET'])
@@ -287,7 +295,7 @@ def voucher_get_user(session):
     try:
         check_params_int([id_voucher, id_user, id_institution, used, expired])
     except ValueError:
-        return jsonify({"error": "bad argument"}), 400
+        return jsonify({"error": "bad argument"}), HTTP_CODE_ERROR_BAD_REQUEST
 
     results = session.query(Voucher, VoucherUser).join(Voucher, VoucherUser.id_voucher == Voucher.idVoucher)
 
@@ -322,4 +330,4 @@ def voucher_get_user(session):
             "bought": vuser.boughtVoucherUser,
         })
 
-    return jsonify(json_data), 200
+    return jsonify(json_data), HTTP_CODE_OK
